@@ -1,7 +1,7 @@
 ;dimensions of square world
 (def dim 80)
 ;number of ants = nants-sqrt^2
-(def nants-sqrt 7)
+(def nants-sqrt 10)
 ;number of places with food
 (def food-places 35)
 ;range of amount of food at a place
@@ -11,7 +11,8 @@
 ;scale factor for food drawing
 (def food-scale 30.0)
 ;evaporation rate
-(def evap-rate 0.99)
+(def evap-rate 0.001)
+
 
 (def animation-sleep-ms 100)
 (def ant-sleep-ms 40)
@@ -93,7 +94,6 @@
          ;leave pheromone trail
        newloc))
 
-
 (defn behave [loc]
 	(let [p (place loc)
         ant (:ant @p)
@@ -105,25 +105,42 @@
 	 (dosync
 	 (when running
        (send-off *agent* #'behave))
-;;	 (if (or (and (:ant @p)(= (:infect (:ant @p)) 0)) ( and (:ant @ahead) (= (:infect (:ant @ahead)) 1)) ( and (:ant @ahead-left) (= (:infect (:ant @ahead-left)) 1)) (and (:ant @ahead-right) (= (:infect (:ant @ahead-right)) 1)))
-	(if (and (= (:infect (:ant @p)) 0) (or (= (:infect (:ant @ahead)) 1)  (= (:infect (:ant @ahead-left)) 1) (= (:infect (:ant @ahead-right)) 1)))
-		(alter p 
-		 assoc :ant ( assoc ant :infect ( inc (:infect ant)))))
-	   (-> loc (turn (rand-int 4)))
-	  (move loc)))))
-		
-		
+	 (if (and (and (:ant @p)(= (:infect (:ant @p)) 0)) ( or (and (:ant @ahead) (>= (:infect (:ant @ahead)) 1)) ( and (:ant @ahead-left) (>= (:infect (:ant @ahead-left)) 1)) (and (:ant @ahead-right) (>= (:infect (:ant @ahead-right)) 1))))
+		(alter p assoc :ant ( assoc ant :infect ( inc (:infect ant)))))
+	(if  (>= (:infect (:ant @p)) 1)
+		(alter p assoc :ant ( assoc ant :infect (+ evap-rate (:infect ant)))))
+	  
+	  (if (not (:ant @ahead))
+		(move loc)
+	   (-> loc (turn (rand-int 4))))))))
 
-(defn evaporate 
+(defn err-handler-fn [ag ex]
+  (println " " ex "value " @ag))	
+;;;
+;;;(defn evaporate 
+;;;  "causes all the pheromones to evaporate a bit"
+;;;  []
+;;;  (dorun 
+;;;   (for [x (range dim) y (range dim)]
+;;;     (dosync 
+;;;      (let [p (place [x y])]
+;;;	    (if (and (:ant @p) (= (:infect (:ant @p)) 1))
+;;;		(do
+;;;			(println "hello")
+;;;			(alter p assoc :ant ( assoc ant :infect (inc (:infect ant)))))))))))
+
+(defn evaporate [loc]
   "causes all the pheromones to evaporate a bit"
-  []
-  (dorun 
-   (for [x (range dim) y (range dim)]
-     (dosync 
-      (let [p (place [x y])]
-	    (if (= (:infect (:ant @p)) 1) 
-			(alter p assoc :ant ( assoc ant :infect (inc (:infect ant))))))))))
-
+  (println "hello")
+  (let [p (place loc)
+		ant (:ant @p)]
+  (dosync
+	(when running
+       (send-off *agent* #'behave))
+   (if (and (:ant @p) (= (:infect (:ant @p)) 1))
+		(do
+			(println "hello")
+			(alter p assoc :ant ( assoc ant :infect (+ evap-rate (:infect ant)))))))))
 
 (def home-off (/ dim 4))
 (def home-range (range home-off (+ nants-sqrt home-off)))	
@@ -134,14 +151,13 @@
   []
   (sync nil
     (doall
-     (for [x home-range y home-range]
+     (for [x home-range y  home-range]
        (do
-	    (let [ x (+ (rand-int 4) x)
-			   y (+ (rand-int 4) y)]
-         (alter (place [x  y ]) 
-                assoc :home true)
+	    (let [ x (+ (rand-int dim) 0)
+			   y (+ (rand-int dim) 0)]
+
          (create-ant [x  y] (rand-int 8) (rand-int 2))))))))
-			
+		 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;	
 			
@@ -151,7 +167,7 @@
  '(javax.swing JPanel JFrame))
 
 ;pixels per world cell
-(def scale 5)
+(def scale 10)
 
 (defn fill-cell [#^Graphics g x y c]
   (doto g
@@ -174,10 +190,10 @@
                        (:dir ant))]
     (doto g
       (.setColor (cond 
-					( = (:infect ant) 1)  (new Color 255 0 0 255)
-                    ( = (:infect ant) 0)  (new Color 0 0 0 255)
-					:else
-					  (new Color 0 0 0 255)))
+					( and (< (:infect ant) 2) (>= (:infect ant) 1)) (new Color 255 0 0 255)
+                    ( = (:infect ant) 0)  (new Color 255 255 255 255)
+					( >= (:infect ant) 2)
+					  (new Color 0 255 0 255)))
       (.drawLine (+ hx (* x scale)) (+ hy (* y scale)) 
                 (+ tx (* x scale)) (+ ty (* y scale))))))
 				
@@ -193,7 +209,7 @@
                  (. BufferedImage TYPE_INT_ARGB))
         bg (. img (getGraphics))]
     (doto bg
-      (.setColor (. Color white))
+      (.setColor (. Color black))
       (.fillRect 0 0 (. img (getWidth)) (. img (getHeight))))
     (dorun 
      (for [x (range dim) y (range dim)]
@@ -222,12 +238,30 @@
   (. panel (repaint))
   (. Thread (sleep animation-sleep-ms))
   nil)
+  
+(def evaporator (agent nil))
+
+(defn evaporation [x]
+  (when running
+    (send-off *agent* #'evaporation))
+  (evaporate x)
+  (. Thread (sleep evap-sleep-ms))
+  nil)
+
 
   
 (def ants (setup))
+(map #(set-error-handler! % err-handler-fn) ants)
+;;(def corona (create-ant [60 70] 1 1))
 (send-off animator animation)
-(dorun (map #(send-off % behave) ants))
-(send-off evaporator evaporation)
+
+(dorun (map #(send % behave) ants))
+;;(send corona #'behave)
+
+;;(set-error-handler! evaporator evaporation)
+;;(map #(set-error-handler! % err-handler-fn) ants)
+;;(dorun (map #(send % evaporation) ants))
+;;(send-off evaporator evaporation)
 
 ;; )
 
