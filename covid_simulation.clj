@@ -1,7 +1,7 @@
 ;dimensions of square world
-(def dim 80)
+(def dim 40)
 ;number of ants = nants-sqrt^2
-(def nants-sqrt 10)
+(def nants-sqrt 9)
 ;number of places with food
 (def food-places 35)
 ;range of amount of food at a place
@@ -11,12 +11,12 @@
 ;scale factor for food drawing
 (def food-scale 30.0)
 ;evaporation rate
-(def evap-rate 0.001)
+(def evap-rate 0.010)
 
 
-(def animation-sleep-ms 100)
+(def animation-sleep-ms 10)
 (def ant-sleep-ms 40)
-(def evap-sleep-ms 1000)
+(def evap-sleep-ms 10)
 
 (def running true)
 
@@ -101,14 +101,24 @@
         ahead-left (place (delta-loc loc (dec (:dir ant))))
         ahead-right (place (delta-loc loc (inc (:dir ant))))
 		places [ahead ahead-left ahead-right]]
-	 (. Thread (sleep ant-sleep-ms))
+	 (. Thread (sleep  ant-sleep-ms))
 	 (dosync
 	 (when running
        (send-off *agent* #'behave))
-	 (if (and (and (:ant @p)(= (:infect (:ant @p)) 0)) ( or (and (:ant @ahead) (>= (:infect (:ant @ahead)) 1)) ( and (:ant @ahead-left) (>= (:infect (:ant @ahead-left)) 1)) (and (:ant @ahead-right) (>= (:infect (:ant @ahead-right)) 1))))
-		(alter p assoc :ant ( assoc ant :infect ( inc (:infect ant)))))
-	(if  (>= (:infect (:ant @p)) 1)
-		(alter p assoc :ant ( assoc ant :infect (+ evap-rate (:infect ant)))))
+	 (if (and (= (:infect (:ant @p)) 0) ( or (and (:ant @ahead) (>= (:infect (:ant @ahead)) 1)) ( and (:ant @ahead-left) (>= (:infect (:ant @ahead-left)) 1)) (and (:ant @ahead-right) (>= (:infect (:ant @ahead-right)) 1))))
+	 (do
+		;;(defstruct a (assoc ant :infect (inc :infect ant)))
+		(alter p dissoc :ant)
+		(alter p assoc :ant ( assoc ant :infect ( inc (:infect ant))))
+		;;(alter p assoc :ant a)
+		;; (println (:infect ant))
+		 )
+	(if (and (:ant @p) (>= (:infect (:ant @p)) 1))
+		(do
+		(alter p dissoc :ant)
+		(alter p assoc :ant ( assoc ant :infect (+ evap-rate (:infect ant))))
+		;; (println (:ant @p))
+		 )))
 	  
 	  (if (not (:ant @ahead))
 		(move loc)
@@ -116,31 +126,40 @@
 
 (defn err-handler-fn [ag ex]
   (println " " ex "value " @ag))	
-;;;
-;;;(defn evaporate 
-;;;  "causes all the pheromones to evaporate a bit"
-;;;  []
-;;;  (dorun 
-;;;   (for [x (range dim) y (range dim)]
-;;;     (dosync 
-;;;      (let [p (place [x y])]
-;;;	    (if (and (:ant @p) (= (:infect (:ant @p)) 1))
-;;;		(do
-;;;			(println "hello")
-;;;			(alter p assoc :ant ( assoc ant :infect (inc (:infect ant)))))))))))
 
-(defn evaporate [loc]
+(defn evaporate 
   "causes all the pheromones to evaporate a bit"
-  (println "hello")
-  (let [p (place loc)
-		ant (:ant @p)]
-  (dosync
-	(when running
-       (send-off *agent* #'behave))
-   (if (and (:ant @p) (= (:infect (:ant @p)) 1))
-		(do
-			(println "hello")
-			(alter p assoc :ant ( assoc ant :infect (+ evap-rate (:infect ant)))))))))
+  []
+  (def notinfected 0)
+		(def infected 0)
+		(def immune 0)
+  (dorun 
+   (for [x (range dim) y (range dim)]
+     (dosync 
+      (let [p (place [x y])]
+		
+	    (if (and (:ant @p) ( and (< (:infect ant) 2) (>= (:infect ant) 1)))
+			(inc infected))
+		(if (and (:ant @p) ( and (>= (:infect ant) 2)))
+			(inc immune))
+		(if (and (:ant @p) ( and (>= (:infect ant) 2)))
+			(inc immune))
+		)))
+		)
+		println( notinfected + " " + infected + " " ))
+
+;;(defn evaporate [loc]
+;;  "causes all the pheromones to evaporate a bit"
+;;  (println "hello")
+;;  (let [p (place loc)
+;;		ant (:ant @p)]
+;;  (dosync
+;;	(when running
+;;       (send-off *agent* #'behave))
+;;   (if (and (:ant @p) (= (:infect (:ant @p)) 1))
+;;		(do
+;;			(println "hello")
+;;			(alter p assoc :ant ( assoc ant :infect (+ evap-rate (:infect ant)))))))))
 
 (def home-off (/ dim 4))
 (def home-range (range home-off (+ nants-sqrt home-off)))	
@@ -151,12 +170,15 @@
   []
   (sync nil
     (doall
+	 (conj
      (for [x home-range y  home-range]
        (do
 	    (let [ x (+ (rand-int dim) 0)
 			   y (+ (rand-int dim) 0)]
 
-         (create-ant [x  y] (rand-int 8) (rand-int 2))))))))
+         (create-ant [x  y] (rand-int 7) 0))))
+		  (create-ant [20  20] (rand-int 7) 1))
+		  )))
 		 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;	
@@ -201,7 +223,6 @@
 	(when (:ant p)
     (render-ant (:ant p) g x y)))
 
-
 (defn render [g]
   (let [v (dosync (apply vector (for [x (range dim) y (range dim)] 
                                    @(place [x y]))))
@@ -244,26 +265,27 @@
 (defn evaporation [x]
   (when running
     (send-off *agent* #'evaporation))
-  (evaporate x)
+  (evaporate)
   (. Thread (sleep evap-sleep-ms))
   nil)
 
 
   
 (def ants (setup))
-(map #(set-error-handler! % err-handler-fn) ants)
-;;(def corona (create-ant [60 70] 1 1))
+;;(map #(set-error-handler! % err-handler-fn) ants)
+;;(def corona (create-ant [20 20] 1 1))
+;;(conj ants corona)
 (send-off animator animation)
 
 (dorun (map #(send % behave) ants))
+(set-error-handler! evaporator err-handler-fn)
+(send-off evaporator evaporation)
+
 ;;(send corona #'behave)
 
 ;;(set-error-handler! evaporator evaporation)
 ;;(map #(set-error-handler! % err-handler-fn) ants)
 ;;(dorun (map #(send % evaporation) ants))
-;;(send-off evaporator evaporation)
+
 
 ;; )
-
-
-									 
