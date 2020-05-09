@@ -1,6 +1,6 @@
 (def dim 40)
 ;number of ants = nants-sqrt^2
-(def nants-sqrt 7)
+(def nants-sqrt 5)
 ;number of places with food
 (def food-places 35)
 ;range of amount of food at a place
@@ -32,14 +32,14 @@
 (defn place [[x y]]
   (-> world (nth x) (nth y)))
 
-(defstruct ant :dir :infect)
+(defstruct ant :dir :infect :sd)
 
 (defn create-ant
   "create an ant at the location, returning an ant agent on the location"
-  [loc dir infect]
+  [loc dir infect sd]
     (sync nil
       (let [p (place loc)
-            a (struct ant dir infect)]
+            a (struct ant dir infect sd)]
         (alter p assoc :ant a)
         (agent loc))))
 
@@ -87,6 +87,8 @@
        (alter p assoc :ant ant)
        (alter oldp dissoc :ant)
          ;leave pheromone trail
+		 
+	   
        newloc))
 
 (defn behave [loc]
@@ -108,15 +110,68 @@
 	(do
 		(alter p dissoc :ant)
 		(alter p assoc :ant ( assoc ant :infect (+ evap-rate (:infect ant)))))))
+	
+	(if (= (:sd (:ant @p)) 1)
+		loc
+	(if (not (:ant @ahead))
+		(move loc)
+	(-> loc (turn (rand-int 4))))
+	 ))))
+	
 
+(defn behave2 [loc]
+	(let [p (place loc)
+		ant (:ant @p)
+        ahead (place (delta-loc loc (:dir ant)))
+        ahead-left (place (delta-loc loc (dec (:dir ant))))
+        ahead-right (place (delta-loc loc (inc (:dir ant))))
+		places [ahead ahead-left ahead-right]]
+	(. Thread (sleep  ant-sleep-ms))
+	(dosync
+	(when running
+		(send-off *agent* #'behave2))
+	(if (and (= (:infect (:ant @p)) 0) ( or (and (:ant @ahead) (>= (:infect (:ant @ahead)) 1)) ( and (:ant @ahead-left) (>= (:infect (:ant @ahead-left)) 1)) (and (:ant @ahead-right) (>= (:infect (:ant @ahead-right)) 1))))
+	(do
+		(alter p dissoc :ant)
+		(alter p assoc :ant ( assoc ant :infect ( inc (:infect ant)))))
+	(if (and (:ant @p) (>= (:infect (:ant @p)) 1))
+	(do
+		(alter p dissoc :ant)
+		(alter p assoc :ant ( assoc ant :infect (+ evap-rate (:infect ant)))))))
+	
+	
 	(if (not (:ant @ahead))
 		(move loc)
 	(-> loc (turn (rand-int 4)))))))
 
+;;;(defn behave2 [loc]
+;;;	(let [p (place loc)
+;;;		ant (:ant @p)
+;;;        ahead (place (delta-loc loc (:dir ant)))
+;;;        ahead-left (place (delta-loc loc (dec (:dir ant))))
+;;;        ahead-right (place (delta-loc loc (inc (:dir ant))))
+;;;		places [ahead ahead-left ahead-right]]
+;;;	(. Thread (sleep  ant-sleep-ms))
+;;;	(dosync
+;;;	(when running
+;;;		(send-off *agent* #'behave2))
+;;;	(println @ahead)
+;;;	(if (and (= (:infect (:ant @p)) 0) ( or (and (:ant @ahead) (>= (:infect (:ant @ahead)) 1)) ( and (:ant @ahead-left) (>= (:infect (:ant @ahead-left)) 1)) (and (:ant @ahead-right) (>= (:infect (:ant @ahead-right)) 1))))
+;;;	(do
+;;;		println("hello")
+;;;		(alter p dissoc :ant)
+;;;		(alter p assoc :ant ( assoc ant :infect ( inc (:infect ant)))))
+;;;	(if (and (:ant @p) (>= (:infect (:ant @p)) 1))
+;;;	(do
+;;;		(alter p dissoc :ant)
+;;;		(alter p assoc :ant ( assoc ant :infect (+ evap-rate (:infect ant)))))))
+;;;		)))
+
+
+
 
 (def home-off (/ dim 4))
 (def home-range (range home-off (+ nants-sqrt home-off)))
-
 
 (defn setup
   "places initial food and ants, returns seq of ant agents"
@@ -128,9 +183,22 @@
 		(do
 		(let [ x (+ (rand-int dim) 0)
 			   y (+ (rand-int dim) 0)]
+			(create-ant [x  y] (rand-int 7) 0 0))))
+			(create-ant [20  20] (rand-int 7) 1 0)))))
 
-			(create-ant [x  y] (rand-int 7) 0))))
-			(create-ant [20  20] (rand-int 7) 1)))))
+(defn setup2
+  "places initial food and ants, returns seq of ant agents"
+  []
+  (sync nil
+    (doall
+	(conj
+		(for [x home-range y  home-range]
+		(do
+		(let [ x (+ (rand-int dim) 0)
+			   y (+ (rand-int dim) 0)]
+
+			(create-ant [x  y] (rand-int 7) 0 0))))
+			))))			
 
 (defn err-handler-fn [ag ex]
   (println " " ex "value " @ag))
@@ -162,7 +230,8 @@
                         4 [2 4 2 0]
                         5 [0 4 4 0]
                         6 [0 2 4 2]
-                        7 [0 0 4 4]}
+                        7 [0 0 4 4]
+						}
                        (:dir ant))]
     (doto g
       (.setColor (cond
@@ -216,9 +285,13 @@
 (with-open [w (clojure.java.io/writer  "C:/Users/ashup/data.csv" :append true)]
 (.write w msg)))
 
-(write-file "well,recovered\n")
+(write-file "well,recovered,infected\n")
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (def ants (setup))
+(def dormant (setup2))
+;;(map #(set-error-handler! % err-handler-fn) ants)
+;;(def abe (conj ant aa))
+
 
 (defn vect []
  (map (comp :infect :ant deref place deref) ants))
@@ -226,14 +299,19 @@
 (defn evaporate []
   "causes all the pheromones to evaporate a bit"
 	(def aa (vect))
+	(def dormant (vect))
 	(def recovered  (count (filter #( >= % 2)(filter identity aa))))
+	(def recovered_d (count (filter #( >= % 2)(filter identity dormant))))
 	(def well (count (filter #( = % 0)(filter identity aa))))
+	(def well_d (count (filter #( = % 0)(filter identity dormant))))
 	(def infected (count (filter #(< % 2) (filter #( >= % 1) (filter identity aa)))))
-	(write-file (str well "," recovered "\n") )
+	(def infected_d (count (filter #(< % 2) (filter #( >= % 1) (filter identity aa)))))
+	(write-file (str (+ well well_d) "," (+ recovered recovered_d) "," (+ infected infected_d)"\n") )
 )
 
 (send-off animator animation)
 (dorun (map #(send % behave) ants))
+(dorun (map #(send % behave) dormant))
 
 (defn print-count []
 (while true (do 
@@ -243,7 +321,7 @@
 (print-count)
 
 ;;(def a (count (filter pos? (map (comp :infect :ant deref place deref) ants))))
-
+(map (comp deref) ants)
 
 ;;(map #(set-error-handler! % err-handler-fn) ants)
 ;;(def corona (create-ant [20 20] 1 1))
