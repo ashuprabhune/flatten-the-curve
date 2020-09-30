@@ -6,4 +6,4 @@ https://www.washingtonpost.com/graphics/2020/world/corona-simulator/
 Link to Rich Hickey's simulation video:
 https://www.youtube.com/watch?v=dGVqrGmwOAw&feature=youtu.be
 
-![](flatten-the-curve.gif)
+![Demo GIF](flatten-the-curve.gif)
